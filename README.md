@@ -38,7 +38,7 @@ is not necessary to use this file. It has the same data as the MySQL
 server will have after to import the table. It is there in case you
 want to see use it but you'll need Windows.
 
-Write a PERL script that scrapes the worldfloraonline website to get
+Write a Perl script that scrapes the worldfloraonline website to get
 the data and add that data into the  respective tables. This is by far
 the hardest part of this project. Include in the script the ability to
 update current MySQL database should the data change.
