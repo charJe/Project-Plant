@@ -23,7 +23,7 @@ my $db->do("create table [if not exists] genus
 my $db->do("create table [if not exists] species
 	  (genus_id integer, species text, species_id integer auto_increment);");
 my $db->do("create table [if not exists] varieties
-	  (species_id integer, name text);");
+	  (species_id integer, name text, variety_id integer auto_increment);");
 my $db->do("create table [if not exists] synonyms
 	  (species_id integer, nym text);");
 ### initialize psudo-browser ###
