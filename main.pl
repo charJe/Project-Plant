@@ -2,9 +2,7 @@
 # Charles Jackson
 use warnings;
 use strict;
-use lib "$ENV{HOME}/.cpanm/latest-build/";
 use WWW::Mechanize;	     # https://metacpan.org/pod/WWW::Mechanize
-use lib "$ENV{HOME}/.cpanm/latest-build/DBD-mysql-4.050/lib/";
 use DBI;		     # https://metacpan.org/pod/DBD::mysql
 use Data::Dumper;
 
@@ -15,18 +13,19 @@ use Data::Dumper;
 #my $pass = <STDIN>;		     # get password from console
 #my $db = DBI->connect("","$user","$pass"); # log in to mySQL server
 ### create tables ##
+#$main::FIELD_SIZE = 50;
 #my $db->do("create table [if not exists] orders 
-#	  (order text, order_id integer auto_increment);");
-#my $db->do("create table [if not exists] family
-#	  (order_id integer, family text, family_id integer auto_increment);");
-#my $db->do("create table [if not exists] genus
-#	  (family_id integer, genus text, genus_id integer auto_increment);");
+#	  (order varchar($main::FIELD_SIZE), order_id integer auto_increment, general_information text);");
+#my $db->do("create table [if not exists] families
+#	  (order_id integer, family varchar($main::FIELD_SIZE), family_id integer auto_increment, general_information text);");
+#my $db->do("create table [if not exists] genera
+#	  (family_id integer, genus varchar($main::FIELD_SIZE), genus_id integer auto_increment, general_information text);");
 #my $db->do("create table [if not exists] species
-#	  (genus_id integer, species text, species_id integer auto_increment);");
+#	  (genus_id integer, species varchar($main::FIELD_SIZE), species_id integer auto_increment, general_information text);");
 #my $db->do("create table [if not exists] varieties
-#	  (species_id integer, name text, variety_id integer auto_increment);");
+#	  (species_id integer, name varchar($main::FIELD_SIZE), variety_id integer auto_increment, general_information text);");
 #my $db->do("create table [if not exists] synonyms
-#	  (species_id integer, nym text);");
+#	  (species_id integer, nym varchar($main::FIELD_SIZE));");
 ### initialize psudo-browser ###
 our %depths = (order   => 0, # enumerated type to to keep trac of the depth of taxonomy
 	       family  => 1,
@@ -60,10 +59,5 @@ for(my $o_id=0; $o_id < 1 and $o_id <= $#order_links; $o_id++){ # for every orde
 	}
 	
     }
-    
-    ## family ## first we must get to the place where the included families are listed
-    
-    
     print Dumper $bro->links();
 }
-
