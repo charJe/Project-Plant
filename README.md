@@ -1,7 +1,7 @@
 # Project-Plant
-I need plant data from the following web site: http://www.worldfloraonline.org/
+I need plant data from the following web site: ~~http://www.worldfloraonline.org/~~
 The data can be viewed at this link
-http://www.worldfloraonline.org/classification. There is a hierarchy.
+~~http://www.worldfloraonline.org/classification~~. There is a hierarchy.
 The top of the hierarchy is the order. The next down is the family.
 The next down is the genus. The next down  is the specific epithet.
 Below that are the varieties, subspecies, forms etc. This hierarchy is
@@ -17,7 +17,7 @@ http://--.---.--.---/plantfiles/ which is my computer.
 
 The alangium files are images created from the worldfloraonline site
 for the plant alangium chinense:
-http://www.worldfloraonline.org/taxon/wfo-0000936752
+~~http://www.worldfloraonline.org/taxon/wfo-0000936752~~
 The image files have been marked up to show what data I need and in
 which tables that data should go. Review the table relationship file
 to see how the tables are related. Each record has a unique key so
