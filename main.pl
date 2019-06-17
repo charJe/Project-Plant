@@ -6,7 +6,7 @@ use WWW::Mechanize;	   # https://metacpan.org/pod/WWW::Mechanize
 use DBI;		   # https://metacpan.org/pod/DBD::mysql
 use Data::Dumper;
 use v5.10;
-$| = 1;
+$| = 1; # so the ... will appear on the same line and at the right time
 
 ## given a WWW::Mechanize::Link to a world flora online taxon,
 ## returns the portion of the link starting with wfo and containing the unique identifier for that taxon
