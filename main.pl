@@ -3,7 +3,6 @@
 use warnings;
 use strict;
 use WWW::Mechanize;	   # https://metacpan.org/pod/WWW::Mechanize
-use Try::Tiny::Retry ':all'; # https://metacpan.org/pod/Try::Tiny::Retry
 use DBI;		   # https://metacpan.org/pod/DBD::mysql
 use Data::Dumper;
 use v5.10;
