@@ -2,62 +2,151 @@
 # Charles Jackson
 use warnings;
 use strict;
-use WWW::Mechanize;	     # https://metacpan.org/pod/WWW::Mechanize
-use DBI;		     # https://metacpan.org/pod/DBD::mysql
+use WWW::Mechanize;	   # https://metacpan.org/pod/WWW::Mechanize
+use Try::Tiny::Retry ':all'; # https://metacpan.org/pod/Try::Tiny::Retry
+use DBI;		   # https://metacpan.org/pod/DBD::mysql
 use Data::Dumper;
+use v5.10;
+$| = 1;
 
-### initialize mqSQL ###
-#print("Login to mySQL$/username: "); # ask the user for their mySQL username
-#my $user = <STDIN>;		     # get username from console
-#print("password: ");		     # ask user for mySQL password
-#my $pass = <STDIN>;		     # get password from console
-#my $db = DBI->connect("","$user","$pass"); # log in to mySQL server
+## given a WWW::Mechanize::Link to a world flora online taxon,
+## returns the portion of the link starting with wfo and containing the unique identifier for that taxon
+sub wfo {
+    my $link = shift;
+    my @url = split /\/|;/, $link->url(); # break up the link by / and ;
+    return $url[2];
+}
+# for debugging messages
+my %debug=(
+    info => 1,
+    min  => 2,
+    med  => 3,
+    max  => 4);
+my $dblevel = 1;
+### initialize mySQL ###
+print("Login to mySQL$/username: "); # ask the user for their mySQL username
+my $user = <STDIN>;		     # get username from console
+chomp($user);
+print("password: ");		     # ask user for mySQL password
+my $pass = <STDIN>;		     # get password from console
+chomp($pass);
+my $dbh = DBI->connect("DBI:mysql:plants","$user","$pass") # log in to mySQL server
+    or die "Could not connect to mysql. Is the server running? Don't use root user. make sure you have access from any ip: $@.$/";
+$pass = undef;
+print("connected mysql-server$/");
+print "Creating Tables..." if($dblevel >= $debug{info});
 ### create tables ##
-#$main::FIELD_SIZE = 50;
-#my $db->do("create table [if not exists] orders 
-#	  (order varchar($main::FIELD_SIZE), order_id integer auto_increment, general_information text);");
-#my $db->do("create table [if not exists] families
-#	  (order_id integer, family varchar($main::FIELD_SIZE), family_id integer auto_increment, general_information text);");
-#my $db->do("create table [if not exists] genera
-#	  (family_id integer, genus varchar($main::FIELD_SIZE), genus_id integer auto_increment, general_information text);");
-#my $db->do("create table [if not exists] species
-#	  (genus_id integer, species varchar($main::FIELD_SIZE), species_id integer auto_increment, general_information text);");
-#my $db->do("create table [if not exists] varieties
-#	  (species_id integer, name varchar($main::FIELD_SIZE), variety_id integer auto_increment, general_information text);");
-#my $db->do("create table [if not exists] synonyms
-#	  (species_id integer, nym varchar($main::FIELD_SIZE));");
+my @table_names = ("orders", "families","genera", "species", "subspecies"); # for selecting which table to insert into
+my @depths = ("order", "family","genus", "species", "subspecies"); # for selecting what is being stored in the table
+my $FIELD_SIZE = 500;		# the size for taxon names
+$dbh->do("use plants");
+$dbh->do("create table if not exists orders (wfo varchar($FIELD_SIZE), `order` varchar($FIELD_SIZE) unique key, order_id int not null auto_increment primary key);"); # orders table
+$dbh->do("create table if not exists order_synonyms (wfo varchar($FIELD_SIZE), synonym varchar($FIELD_SIZE) unique key, synonym_id int not null auto_increment primary key, order_id integer);"); # order synonym table
+for (my $i = 1; $i <= $#depths; $i++) { # the rest of the tables and synonym tables
+    $dbh->do("create table if not exists $table_names[$i] (wfo varchar($FIELD_SIZE), $depths[$i] varchar($FIELD_SIZE) unique key, $depths[$i]_id int not null auto_increment primary key, $depths[$i-1]_id integer);");
+    $dbh->do("create table if not exists $depths[$i]_synonyms (wfo varchar($FIELD_SIZE), synonym varchar($FIELD_SIZE) unique key, synonym_id int not null auto_increment primary key, $depths[$i]_id integer);");
+}
+print "Done$/" if($dblevel >= $debug{info});
 ### initialize psudo-browser ###
-our %depths = (order   => 0, # enumerated type to to keep trac of the depth of taxonomy
-	       family  => 1,
-	       genus   => 2,
-	       species => 3);
-my $bro = WWW::Mechanize->new();	# instantiate browser
-$bro->get("http://www.worldfloraonline.org/classification"); # request website
+print "Connecting to WFO..." if($dblevel >= $debug{info});
+my $bro = WWW::Mechanize->new(cookie_jar => undef);	# instantiate browser
+my $basename = "http://www.worldfloraonline.org";
+$bro->get("$basename/classification") # request website
+    or die "Could not connect to $basename/classification. Are you connected to the internet? Can you reach the website in your browser?: $@";
+print "Done$/" if($dblevel >= $debug{info});
 my @order_links = $bro->links();
 # find out how many orders there are
 my $i;
-for($i=$#order_links; $order_links[$i]->text() ne "Data Providers" ; $i--){}
-$i--;				# $i is now on the last order
-@order_links = @order_links[16..($i)]; # @order_links now contains only order links
+for($i=$#order_links; $order_links[$i]->text() ne "Data Providers"; $i--){}
+$i--;	# $i is now on the last order. the next statement is 0 indexed
+@order_links = @order_links[16..($i)]; # @order_links now contains only order links. the first order is the 17th link I think
 
-## order ##
-my $depth = $depths{order};
-for(my $o_id=0; $o_id < 1 and $o_id <= $#order_links; $o_id++){ # for every order
-    my $order = $order_links[$o_id]->text(); # get the name of the order
-#    $db->do("insert into orders () 
-    #	   values($order,0) [on duplicate key update order];"); # store order in database
-    $bro->follow_link( url => $order_links[$o_id]->url() );
-    $depth++;			# go into family
-    ## family, genus, species... ##
-    sub dps{
+## orders ##
+my $orderIndex;
+my $pfh;			# place file handle
+if( -f 'place.num'){
+    open($pfh,'<','place.num'); # read in where we left off
+    $orderIndex = <$pfh>;
+    chomp($orderIndex);
+    close($pfh);
+}else{
+    $orderIndex = 0;
+}
+my $depth = 0;
+print Dumper @order_links if($dblevel >= $debug{max});
+for(;$orderIndex <= $#order_links; $orderIndex++) { # for every order
+    open($pfh, '>', 'place.num');		   # save the current order we are working on in case we crash
+    print $pfh $orderIndex;
+    close($pfh);
+    my $order = $order_links[$orderIndex]->text(); # get the name of the order
+    print "$order..." if($dblevel >= $debug{info});
+    my $wfo = &wfo($order_links[$orderIndex]); # get the wfo id for the order
+    $dbh->do("insert into orders (wfo, `order`) values (?, ?) on duplicate key update wfo = ?;", undef, $wfo, $order, $wfo); # store order in database.
+    my $connected=0;
+    until($connected){
+	try{
+	    $bro->get($basename.$order_links[$orderIndex]->url()); # follow link to go to order page that has a list of families
+	    $connected = 1;
+	}catch{print "..."}
+    }
+    $connected = undef;
+    $depth++;			# go into families
+    &dftraverse($order);
+    $depth--;			# exit back to orders
+    print "Done$/" if($dblevel >= $debug{info});
+    ## families, genera, species... ##
+    sub dftraverse {
+	my $parent = shift;
 	my @links = $bro->links(); # get the webpage
-	for(my $id=0; $id <= $#links; $id++){ # find the links containing the taxon childeren
-	    my $attr = $links[$id]->attrs(); 
-	    if($attr->{'title'} =~ /^Comment on Included/){
-		last;	       
+	print Dumper @links if($dblevel >= $debug{max});
+	# find the links containing the taxon childeren
+	for(my $i=0; $i <= $#links; $i++) { 
+	    my $attr = $links[$i]->attrs();
+	    next if(!$attr->{'title'});
+	    ## sub-taxon ##
+	    if($attr->{'title'} =~ /^Comment on Included/){ # found included sub-taxon including varieties
+		$i++;		# move first sub-taxon
+		my $name = $links[$i]->text();
+		$wfo = &wfo($links[$i]);
+		$dbh->do("insert into $table_names[$depth] (wfo, $depths[$depth], $depths[$depth-1]_id) values (?, ?, (select $depths[$depth-1]_id from $table_names[$depth-1] where `$depths[$depth-1]` = ?)) on duplicate key update wfo = ?;", undef, $wfo, $name, $parent, $wfo);
+		until ($links[$i]->url() =~ /^#/) { # until the end of 
+		    $depth++;
+		    until($connected){
+			try{
+			    $bro->get($basename.$links[$i]->url());
+			    $connected = 1;
+			}catch{print "..."}
+		    }
+		    $connected = undef;
+		    &dftraverse($name); # go to a new, page one taxon level deeper
+		    until($connected){
+			try{
+			    $bro->back();
+			    $connected = 1;
+			}catch{print "..."}
+		    }
+		    $connected = undef;
+		    $depth--;
+		    $i++;	# move to next subtaxon
+		}
+	    }
+	    if($attr->{'title'} =~ /^Comment on Synonyms/) { 
+		$i++;		# move to the first synonym
+		$depth--;	# synonyms are actually on the same level as the parent
+	    	# get synonyms
+	    	until ($links[$i]->url() =~ /#/) {
+		    my $name = $links[$i]->text();
+		    my $wfo = &wfo($links[$i]);
+		    $dbh->do("insert into $depths[$depth]_synonyms (wfo, synonym, $depths[$depth]_id) values (?, ?, (select $depths[$depth]_id from $table_names[$depth] where `$depths[$depth]` = ?)) on duplicate key update wfo = ?;", undef, $wfo, $name, $parent, $wfo);
+	    	    $i++;
+	    	}
+		$depth++;
 	    }
 	}
-	
     }
-    print Dumper $bro->links();
 }
+$dbh->disconnect();
+open($pfh, '>', 'place.num'); # start from the begining on the next run
+print $pfh 0;
+close($pfh);
+say("Finished");
