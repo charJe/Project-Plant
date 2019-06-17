@@ -87,7 +87,7 @@ for(;$orderIndex <= $#order_links; $orderIndex++) { # for every order
 	try{
 	    $bro->get($basename.$order_links[$orderIndex]->url()); # follow link to go to order page that has a list of families
 	    $connected = 1;
-	}catch{print "..."}
+	}catch{print "."}
     }
     $connected = undef;
     $depth++;			# go into families
@@ -115,7 +115,7 @@ for(;$orderIndex <= $#order_links; $orderIndex++) { # for every order
 			try{
 			    $bro->get($basename.$links[$i]->url());
 			    $connected = 1;
-			}catch{print "..."}
+			}catch{print "."}
 		    }
 		    $connected = undef;
 		    &dftraverse($name); # go to a new, page one taxon level deeper
@@ -123,7 +123,7 @@ for(;$orderIndex <= $#order_links; $orderIndex++) { # for every order
 			try{
 			    $bro->back();
 			    $connected = 1;
-			}catch{print "..."}
+			}catch{print "."}
 		    }
 		    $connected = undef;
 		    $depth--;
