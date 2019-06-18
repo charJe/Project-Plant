@@ -3,6 +3,7 @@
 use warnings;
 use strict;
 use WWW::Mechanize;	   # https://metacpan.org/pod/WWW::Mechanize
+use Try::Tiny;
 use DBI;		   # https://metacpan.org/pod/DBD::mysql
 use Data::Dumper;
 use v5.10;
@@ -39,11 +40,11 @@ my @table_names = ("orders", "families","genera", "species", "subspecies"); # fo
 my @depths = ("order", "family","genus", "species", "subspecies"); # for selecting what is being stored in the table
 my $FIELD_SIZE = 500;		# the size for taxon names
 $dbh->do("use plants");
-$dbh->do("create table if not exists orders (wfo varchar($FIELD_SIZE), `order` varchar($FIELD_SIZE) unique key, order_id int not null auto_increment primary key);"); # orders table
-$dbh->do("create table if not exists order_synonyms (wfo varchar($FIELD_SIZE), synonym varchar($FIELD_SIZE) unique key, synonym_id int not null auto_increment primary key, order_id integer);"); # order synonym table
+$dbh->do("create table if not exists orders (wfo varchar($FIELD_SIZE) unique key, `order` varchar($FIELD_SIZE), order_id int not null auto_increment primary key);"); # orders table
+$dbh->do("create table if not exists order_synonyms (wfo varchar($FIELD_SIZE) unique key, synonym varchar($FIELD_SIZE), synonym_id int not null auto_increment primary key, order_id integer);"); # order synonym table
 for (my $i = 1; $i <= $#depths; $i++) { # the rest of the tables and synonym tables
-    $dbh->do("create table if not exists $table_names[$i] (wfo varchar($FIELD_SIZE), $depths[$i] varchar($FIELD_SIZE) unique key, $depths[$i]_id int not null auto_increment primary key, $depths[$i-1]_id integer);");
-    $dbh->do("create table if not exists $depths[$i]_synonyms (wfo varchar($FIELD_SIZE), synonym varchar($FIELD_SIZE) unique key, synonym_id int not null auto_increment primary key, $depths[$i]_id integer);");
+    $dbh->do("create table if not exists $table_names[$i] (wfo varchar($FIELD_SIZE) unique key, $depths[$i] varchar($FIELD_SIZE), $depths[$i]_id int not null auto_increment primary key, $depths[$i-1]_id integer);");
+    $dbh->do("create table if not exists $depths[$i]_synonyms (wfo varchar($FIELD_SIZE) unique key, synonym varchar($FIELD_SIZE), synonym_id int not null auto_increment primary key, $depths[$i]_id integer);");
 }
 print "Done$/" if($dblevel >= $debug{info});
 ### initialize psudo-browser ###
@@ -80,11 +81,11 @@ for(;$orderIndex <= $#order_links; $orderIndex++) { # for every order
     my $order = $order_links[$orderIndex]->text(); # get the name of the order
     print "$order..." if($dblevel >= $debug{info});
     my $wfo = &wfo($order_links[$orderIndex]); # get the wfo id for the order
-    $dbh->do("insert into orders (wfo, `order`) values (?, ?) on duplicate key update wfo = ?;", undef, $wfo, $order, $wfo); # store order in database.
+    $dbh->do("insert into orders (wfo, `order`) values (?, ?);", undef, $wfo, $order); # store order in database.
     my $connected=0;
     until($connected){
 	try{
-	    $bro->get($basename.$order_links[$orderIndex]->url()); # follow link to go to order page that has a list of families
+	    $bro->get($order_links[$orderIndex]->url()); # follow link to go to order page that has a list of families
 	    $connected = 1;
 	}catch{print "."}
     }
@@ -105,14 +106,14 @@ for(;$orderIndex <= $#order_links; $orderIndex++) { # for every order
 	    ## sub-taxon ##
 	    if($attr->{'title'} =~ /^Comment on Included/){ # found included sub-taxon including varieties
 		$i++;		# move first sub-taxon
-		my $name = $links[$i]->text();
-		$wfo = &wfo($links[$i]);
-		$dbh->do("insert into $table_names[$depth] (wfo, $depths[$depth], $depths[$depth-1]_id) values (?, ?, (select $depths[$depth-1]_id from $table_names[$depth-1] where `$depths[$depth-1]` = ?)) on duplicate key update wfo = ?;", undef, $wfo, $name, $parent, $wfo);
-		until ($links[$i]->url() =~ /^#/) { # until the end of 
+		until ($links[$i]->url() =~ /^#/) { # until the end of
+		    my $name = $links[$i]->text();
+		    $wfo = &wfo($links[$i]);
+		    $dbh->do("insert into $table_names[$depth] (wfo, $depths[$depth], $depths[$depth-1]_id) values (?, ?, (select $depths[$depth-1]_id from $table_names[$depth-1] where `$depths[$depth-1]` = ?));", undef, $wfo, $name, $parent);
 		    $depth++;
 		    until($connected){
 			try{
-			    $bro->get($basename.$links[$i]->url());
+			    $bro->get($links[$i]->url());
 			    $connected = 1;
 			}catch{print "."}
 		    }
@@ -130,16 +131,16 @@ for(;$orderIndex <= $#order_links; $orderIndex++) { # for every order
 		}
 	    }
 	    if($attr->{'title'} =~ /^Comment on Synonyms/) { 
-		$i++;		# move to the first synonym
-		$depth--;	# synonyms are actually on the same level as the parent
+	    	$i++;		# move to the first synonym
+	    	$depth--;	# synonyms are actually on the same level as the parent
 	    	# get synonyms
 	    	until ($links[$i]->url() =~ /#/) {
-		    my $name = $links[$i]->text();
-		    my $wfo = &wfo($links[$i]);
-		    $dbh->do("insert into $depths[$depth]_synonyms (wfo, synonym, $depths[$depth]_id) values (?, ?, (select $depths[$depth]_id from $table_names[$depth] where `$depths[$depth]` = ?)) on duplicate key update wfo = ?;", undef, $wfo, $name, $parent, $wfo);
+	    	    my $name = $links[$i]->text();
+	    	    my $wfo = &wfo($links[$i]);
+	    	    $dbh->do("insert into $depths[$depth]_synonyms (wfo, synonym, $depths[$depth]_id) values (?, ?, (select $depths[$depth]_id from $table_names[$depth] where `$depths[$depth]` = ?));", undef, $wfo, $name, $parent);
 	    	    $i++;
 	    	}
-		$depth++;
+	    	$depth++;
 	    }
 	}
     }
