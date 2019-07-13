@@ -7,14 +7,16 @@ use Try::Tiny;
 use DBI;		   # https://metacpan.org/pod/DBD::mysql
 use Data::Dumper;
 use v5.10;
+use utf8;
 $| = 1; # so the ... will appear on the same line and at the right time
 
 ## given a WWW::Mechanize::Link to a world flora online taxon,
 ## returns the portion of the link starting with wfo and containing the unique identifier for that taxon
 sub wfo {
     my $link = shift;
-    my @url = split /\/|;/, $link->url(); # break up the link by / and ;
-    return $url[2];
+    my @url = split /\/|;|-/, $link->url(); # break up the link by / and ;
+    return $url[3];
+
 }
 # for debugging messages
 my %debug=(
@@ -79,10 +81,10 @@ for(;$orderIndex <= $#order_links; $orderIndex++) { # for every order
     print $pfh $orderIndex;
     close($pfh);
     my $order = $order_links[$orderIndex]->text(); # get the name of the order
-    print "$order..." if($dblevel >= $debug{info});
+    print "$order...$/" if($dblevel >= $debug{info});
     my $wfo = &wfo($order_links[$orderIndex]); # get the wfo id for the order
-    $dbh->do("insert into orders (wfo, `order`) values (?, ?);", undef, $wfo, $order); # store order in database.
-    my $connected=0;
+    $dbh->do("insert into orders (wfo, `order`) values (?, ?) on duplicate key update `order` = ?;", undef, $wfo, $order, $order); # store order in database.
+    my $connected = 0;
     until($connected){
 	try{
 	    $bro->get($order_links[$orderIndex]->url()); # follow link to go to order page that has a list of families
@@ -91,7 +93,7 @@ for(;$orderIndex <= $#order_links; $orderIndex++) { # for every order
     }
     $connected = undef;
     $depth++;			# go into families
-    &dftraverse($order);
+    &dftraverse($wfo);
     $depth--;			# exit back to orders
     print "Done$/" if($dblevel >= $debug{info});
     ## families, genera, species... ##
@@ -108,8 +110,14 @@ for(;$orderIndex <= $#order_links; $orderIndex++) { # for every order
 		$i++;		# move first sub-taxon
 		until ($links[$i]->url() =~ /^#/) { # until the end of
 		    my $name = $links[$i]->text();
-		    $wfo = &wfo($links[$i]);
-		    $dbh->do("insert into $table_names[$depth] (wfo, $depths[$depth], $depths[$depth-1]_id) values (?, ?, (select $depths[$depth-1]_id from $table_names[$depth-1] where `$depths[$depth-1]` = ?));", undef, $wfo, $name, $parent);
+		    my $wfo = &wfo($links[$i]);
+		    if ($depth == 3) { # if it is a species name
+			$name = split(' ', $name)[1];
+			
+		    }else if ($depth == 4) { # if it is a subspecies name
+			$name = split(' ', $name);
+		    }
+		    $dbh->do("insert into $table_names[$depth] (wfo, $depths[$depth], $depths[$depth-1]_id) values (?, ?, (select $depths[$depth-1]_id from $table_names[$depth-1] where wfo = ?)) on duplicate key update `$depths[$depth]` = ?, $depths[$depth-1]_id = (select $depths[$depth-1]_id from $table_names[$depth-1] where wfo = ?);", undef, $wfo, $name, $parent, $name, $wfo);
 		    $depth++;
 		    until($connected){
 			try{
@@ -118,7 +126,7 @@ for(;$orderIndex <= $#order_links; $orderIndex++) { # for every order
 			}catch{print "."}
 		    }
 		    $connected = undef;
-		    &dftraverse($name); # go to a new, page one taxon level deeper
+		    &dftraverse($wfo); # go to a new, page one taxon level deeper
 		    until($connected){
 			try{
 			    $bro->back();
@@ -137,7 +145,7 @@ for(;$orderIndex <= $#order_links; $orderIndex++) { # for every order
 	    	until ($links[$i]->url() =~ /#/) {
 	    	    my $name = $links[$i]->text();
 	    	    my $wfo = &wfo($links[$i]);
-	    	    $dbh->do("insert into $depths[$depth]_synonyms (wfo, synonym, $depths[$depth]_id) values (?, ?, (select $depths[$depth]_id from $table_names[$depth] where `$depths[$depth]` = ?));", undef, $wfo, $name, $parent);
+	    	    $dbh->do("insert into $depths[$depth]_synonyms (wfo, synonym, $depths[$depth]_id) values (?, ?, (select $depths[$depth]_id from $table_names[$depth] where wfo = ?)) on duplicate key update synonym = ?, $depths[$depth]_id = (select $depths[$depth]_id from $table_names[$depth] where wfo = ?);", undef, $wfo, $name, $parent, $name, $wfo);
 	    	    $i++;
 	    	}
 	    	$depth++;
@@ -145,7 +153,7 @@ for(;$orderIndex <= $#order_links; $orderIndex++) { # for every order
 	}
     }
 }
-$dbh->disconnect();
+#$dbh->disconnect();
 open($pfh, '>', 'place.num'); # start from the begining on the next run
 print $pfh 0;
 close($pfh);
